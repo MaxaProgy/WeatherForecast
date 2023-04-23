@@ -1,0 +1,29 @@
+{
+    "cities": [
+        {
+            "name": "Tyumen",
+            "count_days": 2
+        },
+        {
+            "name": "Saint Petersburg",
+            "count_days": 2
+        },
+        {
+            "name": "Phoenix",
+            "count_days": 2
+        },
+        {
+            "name": "Yakutsk",
+            "count_days": 2
+        },
+        {
+            "name": "San Francisco",
+            "count_days": 2
+        },
+        {
+            "name": "New Orleans",
+            "count_days": 3
+        }
+    ],
+    "update_frequency": 30
+}
