@@ -10,11 +10,9 @@
 #include <nlohmann/json.hpp>
 #include <vector>
 
-#include "ftxui/component/captured_mouse.hpp"  // for ftxui
-#include "ftxui/component/component.hpp"       // for CatchEvent, Renderer
-#include "ftxui/component/event.hpp"           // for Event
-#include "ftxui/component/mouse.hpp"  // for Mouse, Mouse::Left, Mouse::Middle, Mouse::None, Mouse::Pressed, Mouse::Released, Mouse::Right, Mouse::WheelDown, Mouse::WheelUp
-#include "ftxui/component/screen_interactive.hpp"  // for ScreenInteractive
+#include "ftxui/component/component.hpp"
+#include "ftxui/component/event.hpp"
+#include "ftxui/component/screen_interactive.hpp"
 #include "ftxui/dom/elements.hpp"
 
 namespace weather_forecast {
@@ -31,60 +29,63 @@ WeatherForecast::WeatherForecast(const std::string& path_to_config) {
 
     for (const auto& city : data["cities"]) {
         cities.AddCity(city["name"], city["count_days"]);
-        UpdateWeatherForCity(cities.Back());
     }
+
+    std::chrono::seconds frequency =
+        std::chrono::seconds(data["update_frequency"].get<int>());
+    terminate = false;
+    thread_frequency = std::thread([&] {
+        while (true) {
+            cities_mutex.lock();
+            for (int i = 0; i < cities.Size(); ++i) {
+                cities[i].UpdateAllForecast();
+            }
+            cities_mutex.unlock();
+            std::this_thread::sleep_for(frequency);
+
+            if (terminate) break;
+        }
+    });
 
     Print();
 }
-
-void WeatherForecast::UpdateWeatherForCity(City& city) {
-    // todo параметры выбирать надо
-    cpr::Response r =
-        cpr::Get(cpr::Url{"https://api.open-meteo.com/v1/forecast"},
-                 cpr::Parameters{
-                     {"latitude", city.GetLat()},
-                     {"longitude", city.GetLon()},
-                     {"hourly", "temperature_2m"},
-                     {"hourly", "relativehumidity_2m"},
-                     {"hourly", "apparent_temperature"},
-                     {"hourly", "weathercode"},
-                     {"hourly", "windspeed_10m"},
-                     {"start_date", city.GetStartDate()},
-                     {"end_date", city.GetEndDate()},
-                 });
-    if (r.status_code == 200) {
-        nlohmann::json response_data = nlohmann::json::parse(r.text);
-        // std::cout << r.text;
-        city.DataPreprocessing(response_data);
-    } else {
-        std::cout << r.error.message << "\n";
-    }
-}
+WeatherForecast::~WeatherForecast() { thread_frequency.detach(); }
 
 void WeatherForecast::Print() {
     using namespace ftxui;
-    auto screen = ScreenInteractive::Fullscreen();
+    auto screen = ScreenInteractive::FitComponent();
 
     size_t cur = 0;
     auto renderer = Renderer([&] {
         return vbox(MakeViewCurrentDay(cities[cur]), MakeViewDays(cities[cur]));
     });
+
     auto component = CatchEvent(renderer, [&](Event event) {
         if (event == Event::Character('q')) {
-            screen.ExitLoopClosure()();
+            terminate = true;
+            screen.Exit();
             return true;
         }
 
-        if (event == Event::ArrowDown || event == Event::ArrowRight) {
+        if (event == Event::ArrowDown || event == Event::ArrowRight ||
+            event == Event::Character('n')) {
             cur = (cur + 1) % cities.Size();
-            std::cout << cities[cur].GetName();
             return true;
         }
-        if (event == Event::ArrowUp || event == Event::ArrowLeft) {
+        if (event == Event::ArrowUp || event == Event::ArrowLeft ||
+            event == Event::Character('p')) {
             cur = (cur == 0 ? cities.Size() - 1 : cur - 1);
-            std::cout << cities[cur].GetName();
             return true;
         }
+        if (event == Event::Character('+')) {
+            cities[cur].IncrementDaysOfForecast();
+            return true;
+        }
+        if (event == Event::Character('-')) {
+            cities[cur].DecrementDaysOfForecast();
+            return true;
+        }
+
         return false;
     });
     screen.Loop(component);
@@ -267,7 +268,7 @@ ftxui::Element WeatherForecast::MakeTemperature(float min, float max,
     return hbox({text("from "),
                  text(std::to_string(min_temperature)) |
                      color(GetColorNumber(min_temperature)),
-                 text(unit), text(" to "),
+                 text(" to "),
                  text(std::to_string(max_temperature)) |
                      color(GetColorNumber(max_temperature)),
                  text(unit)});
@@ -410,7 +411,8 @@ ftxui::Element WeatherForecast::MakeViewDays(
             window(text(data[i].GetDate()) | hcenter | bold,
                    hbox({MakeMorning(data[i]), separator(), MakeMidday(data[i]),
                          separator(), MakeEvening(data[i]), separator(),
-                         MakeNight(data[i])})));
+                         MakeNight(data[i])}) |
+                       yflex));
     }
     return vbox(std::move(elements));
 };
@@ -426,7 +428,7 @@ ftxui::Element WeatherForecast::MakeViewCurrentDay(
         {text("Weather report: " + city.GetName()) | bold |
              color(Color::Aquamarine3),
          text(""),
-         hbox({MakeImageWeather(data[0].GetWeaterCodes().evening),
+         hbox({MakeImageWeather(data[0].GetWeaterCodes().evening) | yflex,
                vbox({MakeDescriptionWeather(data[0].GetWeaterCodes().all_day),
                      MakeTemperature(temperature_2m.all_day.minimum,
                                      temperature_2m.all_day.maximum,

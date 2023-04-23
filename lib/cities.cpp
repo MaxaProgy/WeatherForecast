@@ -187,7 +187,6 @@ void WeatherOfDay::SetAverage(const std::string& key, InputIt begin,
 template <class InputIt,
           class T = typename std::iterator_traits<InputIt>::value_type>
 void WeatherOfDay::SetWeatherCodes(InputIt begin, InputIt end) {
-    std::cout << MostCommon(begin, end);
     weathercode.all_day = GetWeaterCode(MostCommon(begin, end));
     weathercode.night = GetWeaterCode(MostCommon(begin, begin + 6));
     weathercode.morning = GetWeaterCode(MostCommon(begin + 6, begin + 12));
@@ -212,17 +211,26 @@ WeatherOfDay::GetAverages() const {
 
 // ====================== City =========================
 
-City::City(const std::string& name, int count_day)
+WeatherOfDay& City::WeatherAllDays::operator[](size_t i) {
+    auto iter = data.begin();
+    std::advance(iter, i);
+    return *iter;
+}
+void City::WeatherAllDays::Pop() { data.pop_back(); }
+void City::WeatherAllDays::AddEmpty() { data.emplace_back(); }
+void City::WeatherAllDays::Resize(size_t n) { data.resize(n); }
+
+City::City(const std::string& name, size_t count_day)
     : name(name), count_day(count_day) {
     UpdateForecastTimeInterval();
     SetCoordinate();
-    weather_data.resize(count_day);
+    weather_data.Resize(count_day);
 }
 
-void City::DataPreprocessing(nlohmann::json data) {
+void City::DataPreprocessing(const size_t day, nlohmann::json data) {
     for (const auto& [key, value] : data["hourly_units"].items()) {
         if (!weather_data[0].KeyMeasurementContains(key)) continue;
-        for (int i = 0; i < count_day; ++i) {
+        for (int i = day; i < count_day; ++i) {
             auto data = value.get<std::string>();
             weather_data[i].SetUnit(key, value);
         }
@@ -231,19 +239,17 @@ void City::DataPreprocessing(nlohmann::json data) {
     for (const auto& [key, values] : data["hourly"].items()) {
         if (!weather_data[0].KeyMeasurementContains(key) &&
             key != "weathercode") {
-            std::cout << key;
-
             continue;
         }
 
         auto data = values.get<std::vector<float>>();
-        for (int i = 0; i < count_day; ++i) {
+        for (int i = day; i < count_day; ++i) {
+            if (i == day && i == count_day - 1) std::cout << 11;
             weather_data[i].SetDateAverage(i + 1);
             auto start_day = data.begin() + i * 24;
             auto end_day = data.begin() + (i + 1) * 24;
 
             if (key == "weathercode") {
-                std::cout << 9999;
                 weather_data[i].SetWeatherCodes(start_day, end_day);
 
             } else {
@@ -254,7 +260,7 @@ void City::DataPreprocessing(nlohmann::json data) {
 }
 const std::string& City::GetName() const { return name; }
 
-const int City::GetCountDay() const { return count_day; }
+const size_t City::GetCountDay() const { return count_day; }
 
 void City::SetCoordinate() {
     cpr::Response r = cpr::Get(cpr::Url{"https://api.api-ninjas.com/v1/city"},
@@ -271,9 +277,6 @@ void City::SetCoordinate() {
         // TODO: обработка ошибок
     }
 }
-const std::string& City::GetLat() const { return lat; }
-const std::string& City::GetLon() const { return lon; }
-
 void City::UpdateForecastTimeInterval() {
     std::time_t now = std::time({});
     std::time_t then = now + count_day * 24 * 3600;
@@ -285,13 +288,50 @@ void City::UpdateForecastTimeInterval() {
     start_date.erase(start_date.find_first_of('\0'));
     end_date.erase(end_date.find_first_of('\0'));
 }
-const std::string& City::GetStartDate() const { return start_date; }
-const std::string& City::GetEndDate() const { return end_date; }
 
-const std::vector<WeatherOfDay>& City::GetDays() const { return weather_data; }
+const City::WeatherAllDays& City::GetDays() const { return weather_data; }
+
+void City::IncrementDaysOfForecast() {
+    if (count_day == 15) return;
+
+    ++count_day;
+    weather_data.Resize(count_day);
+    UpdateForecastTimeInterval();
+    UpdateAllForecast();
+}
+void City::DecrementDaysOfForecast() {
+    if (count_day == 1) return;
+    --count_day;
+    weather_data.Pop();
+
+    UpdateForecastTimeInterval();
+}
+
+void City::UpdateAllForecast() {
+    cpr::Response r =
+        cpr::Get(cpr::Url{"https://api.open-meteo.com/v1/forecast"},
+                 cpr::Parameters{
+                     {"latitude", lat},
+                     {"longitude", lon},
+                     {"hourly", "temperature_2m"},
+                     {"hourly", "relativehumidity_2m"},
+                     {"hourly", "apparent_temperature"},
+                     {"hourly", "weathercode"},
+                     {"hourly", "windspeed_10m"},
+                     {"start_date", start_date},
+                     {"end_date", end_date},
+                 });
+
+    if (r.status_code == 200) {
+        nlohmann::json response_data = nlohmann::json::parse(r.text);
+        DataPreprocessing(0, response_data);
+    } else {
+        std::cout << r.error.message << "\n";
+    }
+}
 
 // ======================= Cities =========================
-void Cities::AddCity(const std::string& name, int count_day) {
+void Cities::AddCity(const std::string& name, size_t count_day) {
     cities.emplace_back(name, count_day);
 }
 City& Cities::operator[](size_t i) {
@@ -302,5 +342,4 @@ City& Cities::operator[](size_t i) {
 
 City& Cities::Back() { return cities.back(); }
 size_t Cities::Size() const { return cities.size(); }
-
 };  // namespace weather_forecast

@@ -41,7 +41,10 @@ enum WeatherCode {
 const std::string GetDescriptionWeather(const WeatherCode code);
 const WeatherCode GetWeaterCode(const int num);
 
+class City;
 class WeatherOfDay {
+    friend City;
+
    private:
     void InitHourlyParameters();
 
@@ -66,13 +69,6 @@ class WeatherOfDay {
         WeatherCode midday;
         WeatherCode morning;
     };
-
-    std::unordered_map<std::string, AverageMeasurements> measurement;
-    WeatherCodeForDay weathercode;
-    std::string date;
-
-   public:
-    WeatherOfDay();
     template <class InputIt,
               class T = typename std::iterator_traits<InputIt>::value_type>
     void SetAverage(const std::string& key, InputIt begin, InputIt end);
@@ -83,33 +79,48 @@ class WeatherOfDay {
 
     void SetUnit(const std::string& key, const std::string& unit);
     void SetDateAverage(size_t day);
+
+    std::unordered_map<std::string, AverageMeasurements> measurement;
+    WeatherCodeForDay weathercode;
+    std::string date;
+
+   public:
+    WeatherOfDay();
+
     bool KeyMeasurementContains(const std::string& key) const;
     const std::string GetDate() const;
-
     const WeatherCodeForDay& GetWeaterCodes() const;
     const std::unordered_map<std::string, AverageMeasurements>& GetAverages()
         const;
 };
 
 class City {
+   private:
+    class WeatherAllDays {
+       private:
+        std::list<WeatherOfDay> data;
+
+       public:
+        WeatherOfDay& operator[](size_t i);
+        void Pop();
+        void AddEmpty();
+        void Resize(size_t n);
+    };
+
    public:
-    City(const std::string& name, int count_day);
+    City(const std::string& name, size_t count_day);
 
     const std::string& GetName() const;
+    const size_t GetCountDay() const;
 
-    const int GetCountDay() const;
-
-    const std::string& GetLat() const;
-    const std::string& GetLon() const;
-
-    const std::string& GetStartDate() const;
-    const std::string& GetEndDate() const;
-    const std::vector<WeatherOfDay>& GetDays() const;
-    void DataPreprocessing(nlohmann::json data);
+    const WeatherAllDays& GetDays() const;
+    void IncrementDaysOfForecast();
+    void DecrementDaysOfForecast();
+    void UpdateAllForecast();
 
    private:
     std::string name;
-    int count_day;
+    size_t count_day;
 
     std::string start_date;
     std::string end_date;
@@ -117,15 +128,17 @@ class City {
     std::string lat;
     std::string lon;
 
-    std::vector<WeatherOfDay> weather_data;
+    WeatherAllDays weather_data;
 
     void SetCoordinate();
     void UpdateForecastTimeInterval();
+    void AddForecastForLastDay();
+    void DataPreprocessing(const size_t day, nlohmann::json data);
 };
 
 class Cities {
    public:
-    void AddCity(const std::string& name, int count_day);
+    void AddCity(const std::string& name, size_t count_day);
     City& Back();
     size_t Size() const;
     City& operator[](size_t i);

@@ -4,6 +4,7 @@
 #include <list>
 #include <nlohmann/json.hpp>
 #include <string>
+#include <thread>
 #include <unordered_set>
 #include <vector>
 
@@ -15,6 +16,9 @@ namespace weather_forecast {
 class WeatherForecast {
    private:
     Cities cities;
+    std::mutex cities_mutex;
+    bool terminate;
+    bool reload;
     void Print();
     ftxui::Color GetColorNumber(int value) const;
 
@@ -31,13 +35,12 @@ class WeatherForecast {
     ftxui::Element MakeEvening(const WeatherOfDay& data) const;
     ftxui::Element MakeNight(const WeatherOfDay& data) const;
     ftxui::Element MakeViewCurrentDay(const weather_forecast::City& city) const;
-
     ftxui::Element MakeViewDays(const weather_forecast::City& city) const;
-
-    void UpdateWeatherForCity(City& city);
+    std::thread thread_frequency;
 
    public:
     WeatherForecast(const std::string& path_to_config);
+    ~WeatherForecast();
 };
 
 };  // namespace weather_forecast
